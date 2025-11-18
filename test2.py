@@ -1,11 +1,7 @@
-# IGNORE_FILE
-
-
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
 from scipy.interpolate import RegularGridInterpolator
-from scipy.spatial import cKDTree
 from vedo import *
 
 # ----------------- Power-law Viscosity Model -----------------
@@ -33,16 +29,19 @@ def calculate_flow_rate(r1, r2, L, K, n, delta_P):
     return flow_sum
 
 # ----------------- Geometry & Grid Setup -----------------
-R_in = 0.00175     # Base at z = L
-R_out = 0.0004318  # Tip at z = 0
-L = 0.0314
+R_in = 0.00175     # Base at z = L (m)
+R_out = 0.0004318  # Tip at z = 0 (m)
+L = 0.0314         # Length (m)
 
-nz = 250
+nz = 101
 nr = 50
+ntheta = 360
 
 z_vals = np.linspace(L, 0, nz)
 y_vals = np.linspace(-R_in, R_in, 2*nr)
 x_vals = np.linspace(-R_in, R_in, 2*nr)
+
+X, Y = np.meshgrid(x_vals, y_vals)
 
 # ----------------- Fit Viscosity Data -----------------
 df = pd.read_csv("A4C4.csv")
@@ -57,13 +56,14 @@ Q = calculate_flow_rate(R_in, R_out, L, K, n, pressure_pa)
 
 # ----------------- Compute 3D Shear Volume -----------------
 shear_volume = np.zeros((nz, len(y_vals), len(x_vals)))
-
+cloud_pts = {}
 for i, z in enumerate(z_vals):
     Rz = R_in - (R_in - R_out) * ((L - z) / L)
     for j, y in enumerate(y_vals):
         for k, x in enumerate(x_vals):
             r = np.sqrt(x**2 + y**2)
             shear_volume[i, j, k] = compute_shear_stress(r, Rz, Q, K, n)
+            cloud_pts[(z, y, x)] = shear_volume[i, j, k]
 
 # ----------------- Interpolator -----------------
 flipped_z_vals = z_vals[::-1]
@@ -75,50 +75,21 @@ interpolator = RegularGridInterpolator(
     fill_value=None
 )
 
-# ----------------- Load STL & Apply Shear -----------------
+# ----------------- Load STL Nozzle -----------------
 mesh = Mesh("conical_nozzle.stl")
 pts = mesh.points
 coords = np.c_[pts[:, 2], pts[:, 1], pts[:, 0]]  # (z, y, x)
 shear_vals = interpolator(coords)
 
-try:
-    import colorcet
-    cmap = colorcet.bmy
-except ImportError:
-    cmap = "plasma"
+cmap = "plasma"
 
 mesh.pointdata["Shear Stress"] = shear_vals
-mesh.cmap(cmap, shear_vals, on="points")
+mesh.cmap(cmap, shear_vals, on="points", vmax=np.max(shear_vals), vmin=np.min(shear_vals))
 mesh.alpha(1)
 mesh.add_scalarbar(title="Shear Stress (Pa)", c="w")
+mesh.write("shear_nozzle.ply")
+mesh.write("shear_nozzle.obj")
 
-# ----------------- Load and Position random.stl -----------------
-cell = Mesh("random.stl")
-
-# Shift to center inside the nozzle (e.g., z = L/2)
-target_center = np.array([0.0, 0.0, L / 2])
-cell_center = cell.center_of_mass()
-cell.shift(target_center - cell_center)
-
-# ----------------- Nearest Neighbor Mapping from Nozzle to Random STL -----------------
-nozzle_tree = cKDTree(mesh.points)
-nozzle_shear = mesh.pointdata["Shear Stress"]
-
-_, idx = nozzle_tree.query(cell.points)  # Find closest nozzle point for each cell point
-transferred_shear = nozzle_shear[idx]
-
-cell.pointdata["Shear Stress"] = transferred_shear
-cell.cmap(cmap, transferred_shear, on="points")
-cell.alpha(1)
-
-# ----------------- Show Main Nozzle View (plt1) -----------------
-plt1 = Plotter(title="Shear Field View", size=(900, 700), axes=1, bg="k")
-plt1.show(mesh, zoom=1.2, viewup="z", interactive=False)
-
-# ----------------- Show Random STL as Simulation Cell (plt2) -----------------
-plt2 = Plotter(title="Simulation Cell View (random.stl)", size=(600, 600), axes=1, bg="bb")
-plt2.show(cell, zoom=1.5, viewup="z", interactive=True)
-
-# Joint debug view
-plt_debug = Plotter(title="Debug View", axes=1, bg="black")
-plt_debug.show(mesh, cell, zoom=1.2, viewup="z", interactive=True)
+# ----------------- First Plot: Just Nozzle -----------------
+plt1 = Plotter(title="3D Shear Field", size=(900, 700), axes=1, bg="k")
+plt1.show(mesh, zoom=1.2, viewup="z", interactive=True)
