@@ -31,7 +31,7 @@ def compute_shear_stress(x, y, z, R_in, R_out, L, Q, K, n,):
     nonzero = r_vals > 0
 
     gamma_dot = (((n + 1) / n) * (2 * Q / (np.pi * Rz_vals[nonzero]**3))
-                 * (r_vals[nonzero] / Rz_vals[nonzero]) ** (1 / n))
+                 * (r_vals[nonzero] / Rz_vals[nonzero]) ** ((1 / n)-1))
 
     shear_vals[nonzero] = K * np.abs(gamma_dot) ** n
     return shear_vals
@@ -100,12 +100,12 @@ Plotter().show(nozzle_cpts, axes=1, bg="black", title=f"NOZZLE STRESS DISTRIBUTI
 #----------------- Cell Mesh Analysis -------------------
 # Center position of cell to insert
 x_insert = 0.000005
-y_insert = 0.000005
+y_insert = 0.00001
 z_insert = 0.00
 
 # cell_mesh = Mesh("random.stl")
 # cell_mesh = Sphere(pos=(x_insert,y_insert,z_insert), r=0.00001)
-cell_mesh = Ellipsoid(pos=(x_insert, y_insert, z_insert), axis1=0.00001, axis2=0.000005, axis3=0.000005)
+cell_mesh = Ellipsoid(pos=(x_insert, y_insert, z_insert), axis1=(0.00001,0,0), axis2=(0,0.000005,0), axis3=(0,0,0.000005))
 
 cell_pts = cell_mesh.binarize(spacing=(0.0000005, 0.0000005, 0.0000005))
 
