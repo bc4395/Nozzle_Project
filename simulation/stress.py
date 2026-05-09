@@ -1,16 +1,18 @@
 import numpy as np
 
 # Function to compute shear stress at each point based on radial position and flow
-def compute_shear_stress(x, y, z, R_in, R_out, L, Q, K, n):
+def compute_shear_stress(x, y, z, R_in, R_out, L, P, K, n):
+    Q = (np.pi * R_in**3 / (3*n + 1)) * ((R_in * P) / (2 * K * L))**(1/n)
+
     r_vals = np.sqrt(x**2 + y**2)  # Radial distance from center
-    Rz_vals = R_in - (R_in - R_out) * ((L - z) / L)  # Radial position along nozzle length
-    shear_vals = np.zeros_like(r_vals)
+    Rz = ((R_in - R_out) / L) * (z - L) + R_in  # Radial position along nozzle length
 
-    nonzero = r_vals > 0  # Avoid division by zero
+    # ---- FLOW-RATE-BASED PRESSURE GRADIENT ----
+    term = ((3*n + 1) * Q) / (np.pi * Rz**3)
+    dP_dz = (2 * K / Rz) * (term ** n)
 
-    # Shear rate (gamma_dot) at each point
-    gamma_dot = (((n + 1) / n) * (2 * Q / (np.pi * Rz_vals[nonzero]**3))
-                 * (r_vals[nonzero] / Rz_vals[nonzero]) ** ((1 / n)-1))
+    # ---- SHEAR RATE (consistent with power-law physics) ----
+    gamma_dot = ((r_vals / 2) * abs(dP_dz) / K) ** (1/n)
 
-    shear_vals[nonzero] = K * np.abs(gamma_dot) ** n  # Shear stress based on the power law
+    shear_vals = K * np.abs(gamma_dot) ** n  # Shear stress based on the power law
     return shear_vals

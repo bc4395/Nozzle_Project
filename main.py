@@ -1,15 +1,10 @@
+import os
 import sys
 import numpy as np
 import pandas as pd
-from PyQt5.QtWidgets import (
-    QApplication, QWidget, QLabel, QLineEdit,
-    QPushButton, QVBoxLayout, QMessageBox,
-    QFileDialog
-)
+from PyQt5.QtWidgets import *
 from vedo import *
 from scipy.optimize import curve_fit
-
-from simulation.flow import calculate_flow_rate
 from simulation.rheology import model
 from simulation.stress import compute_shear_stress
 
@@ -99,7 +94,7 @@ class CellWindow(QWidget):
         R_in = self.parent.R_in
         R_out = self.parent.R_out
         L = self.parent.L
-        Q = self.parent.Q
+        P = self.parent.pressure_pa
         K = self.parent.K
         n = self.parent.n
 
@@ -120,7 +115,7 @@ class CellWindow(QWidget):
 
         # Create new Points object without border points
         cell_cpts = Points(c_coords[mask])
-        cell_cpts.ps(c_pts.ps())  # copy point size
+        cell_cpts.ps(c_pts.ps())
         cell_cpts.pointcolors = c_colors[mask]
 
         # Retrieve coordinates in x, y, z arrays
@@ -131,15 +126,14 @@ class CellWindow(QWidget):
         # Compute shear stress for each point
         cell_shear_vals = compute_shear_stress(
             x_cvals, y_cvals, z_cvals,
-            R_in, R_out, L, Q, K, n)
+            R_in, R_out, L, P, K, n)
 
         cell_cpts.pointdata["Shear Stress"] = cell_shear_vals
         cell_cpts.cmap("plasma", cell_shear_vals, on="points", vmax=np.max(cell_shear_vals), vmin=np.min(cell_shear_vals))
         cell_cpts.add_scalarbar(title="Shear Stress (Pa)", c="w")
 
-        plt = Plotter(shape=(1, 2), sharecam=False, title=f"CELL STRESS  at P={self.parent.pressure_pa}Pa")
-        plt.show(self.parent.init_pts, at=0, axes=0, bg="black")
-        plt.show(cell_cpts, at=1, axes=1, bg="black")
+        plt = Plotter(title=f"{self.parent.file_name}: Cell Stress at P={self.parent.pressure_pa}Pa")
+        plt.show(cell_cpts, axes=1, bg="black")
 
 
 
@@ -180,28 +174,30 @@ class CrossSectionWindow(QWidget):
         R_in = self.parent.R_in
         R_out = self.parent.R_out
         L = self.parent.L
-        Q = self.parent.Q
+        P = self.parent.pressure_pa
         K = self.parent.K
         n = self.parent.n
         shear_max = self.parent.shear_max
 
         radius = R_in - (R_in - R_out) * ((L - z_level_m) / L)
         
-        cross_section = Disc(r1=0, r2=radius)
+        cross_section = Disc(r1=0, r2=radius,res=(100, 100))
+
+        border = Plane(pos=(0, 0, z_level_m), normal=(0, 0, 1), s=(.005, .005), res=(1, 1), edge_direction=(), c="gray5", alpha=1)
 
         coords = cross_section.coordinates
         x = coords[:,0]
         y = coords[:,1]
         z = np.full(x.shape, z_level_m)
 
-        shear = compute_shear_stress(x, y, z, R_in, R_out, L, Q, K, n)
+        shear = compute_shear_stress(x, y, z, R_in, R_out, L, P, K, n)
 
         cross_section.pointdata["Shear Stress"] = shear
         cross_section.cmap("plasma", shear, on="points", vmax=shear_max, vmin=0)
         cross_section.add_scalarbar(title="Shear Stress (Pa)", c="w")
 
-        plt = Plotter(shape=(1, 2), sharecam=False, title=f"Cross-Section at z={z_level_mm}mm")
-        plt.show(self.parent.init_pts, at=0, axes=0, bg="black", viewup=[0,0,1])
+        plt = Plotter(shape=(1, 2), sharecam=False, title=f"{self.parent.file_name}: Cross-Section at z={z_level_mm}mm")
+        plt.show(self.parent.init_pts, border, at=0, axes=0, bg="black", viewup=[0,0,1])
         plt.show(cross_section, at=1, axes=1, bg="black", mode=10)
 
 class SimulationApp(QWidget):
@@ -230,8 +226,8 @@ class SimulationApp(QWidget):
         self.pressure_widget = QWidget()
         pressure_layout = QVBoxLayout()
 
-        self.label = QLabel("Enter Pressure (psi):")
-        pressure_layout.addWidget(self.label)
+        self.p_input_label = QLabel("Enter Pressure (psi):")
+        pressure_layout.addWidget(self.p_input_label)
 
         self.pressure_input = QLineEdit()
         pressure_layout.addWidget(self.pressure_input)
@@ -250,8 +246,8 @@ class SimulationApp(QWidget):
         self.layout.addWidget(self.pressure_widget)
 
         self.nozzle_button = QPushButton("Nozzle Simulation")
-        self.cell_button = QPushButton("Ellipsoid Simulation")
-        self.cross_button = QPushButton("Cross Section Simulation")
+        self.cell_button = QPushButton("Single Cell Simulation")
+        self.cross_button = QPushButton("Cross-Section Simulation")
 
         self.nozzle_button.clicked.connect(self.run_nozzle)
         self.cell_button.clicked.connect(self.open_cell_window)
@@ -269,8 +265,8 @@ class SimulationApp(QWidget):
         self.setLayout(self.layout)
 
         # Geometry Constants
-        self.R_in = 0.00175
-        self.R_out = 0.0004318
+        self.R_in = 0.00175 / 2
+        self.R_out = 0.0004318 / 2
         self.L = 0.0314
 
     # Load rheology data once
@@ -287,6 +283,7 @@ class SimulationApp(QWidget):
 
         try:
             df = pd.read_csv(file_path)
+            self.file_name = os.path.basename(file_path)
 
             sr_data = df["SR"].values
             vis_data = df["Vis"].values
@@ -294,6 +291,7 @@ class SimulationApp(QWidget):
             self.K, self.n = curve_fit(model, sr_data, vis_data, p0=[1.0, 1.0])[0]
 
             QMessageBox.information(self, "Success", "Rheology file loaded successfully!")
+            self.p_input_label.setText(f"Enter Pressure (psi) for {self.file_name}:")
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to load CSV:\n{e}")
@@ -307,17 +305,12 @@ class SimulationApp(QWidget):
             QMessageBox.warning(self, "Error", "Please upload a rheology CSV first.")
             return
         try:
-            pressure_psi = float(self.pressure_input.text())
+            self.pressure_psi = float(self.pressure_input.text())
         except:
             QMessageBox.warning(self, "Error", "Invalid pressure value")
             return
 
-        self.pressure_pa = pressure_psi * 6894.76
-
-        self.Q = calculate_flow_rate(
-            self.R_in, self.R_out, self.L,
-            self.K, self.n, self.pressure_pa
-        )
+        self.pressure_pa = self.pressure_psi * 6894.76
 
         # Enable simulation buttons
         self.nozzle_button.show()
@@ -328,7 +321,7 @@ class SimulationApp(QWidget):
 
     def initialize_nozzle(self):
         nozzle_mesh = Mesh("meshes/conical_nozzle.stl")
-        nozzle_pts = nozzle_mesh.binarize(spacing=(0.00005, 0.00005, 0.00005))
+        nozzle_pts = nozzle_mesh.binarize(spacing=(0.000025, 0.000025, 0.000025))
 
         n_pts = nozzle_pts.topoints()
 
@@ -341,7 +334,7 @@ class SimulationApp(QWidget):
 
         # Create new Points object without border points
         self.init_pts = Points(n_coords[mask])
-        self.init_pts.ps(n_pts.ps())  # copy point size
+        self.init_pts.ps(n_pts.ps())
         self.init_pts.pointcolors = n_colors[mask]
 
         # Retrieve coordinates in x, y, z arrays
@@ -352,18 +345,17 @@ class SimulationApp(QWidget):
         # Compute shear stress for each point
         self.shear_vals = compute_shear_stress(
             x, y, z,
-            self.R_in, self.R_out, self.L, self.Q, self.K, self.n)
+            self.R_in, self.R_out, self.L, self.pressure_pa, self.K, self.n)
         
         self.shear_max = np.max(self.shear_vals)
 
         # Apply colormap ONLY to vol_after
         self.init_pts.pointdata["Shear Stress"] = self.shear_vals
         self.init_pts.cmap("plasma", self.shear_vals, on="points", vmax=self.shear_max, vmin=0)
-        self.init_pts.add_scalarbar(title="Shear Stress (Pa)", c="w")
 
     def run_nozzle(self):
         nozzle_mesh = Mesh("meshes/conical_nozzle.stl")
-        nozzle_pts = nozzle_mesh.binarize(spacing=(0.00005, 0.00005, 0.00005))
+        nozzle_pts = nozzle_mesh.binarize(spacing=(0.000025, 0.000025, 0.000025))
 
         n_pts = nozzle_pts.topoints()
 
@@ -376,7 +368,7 @@ class SimulationApp(QWidget):
 
         # Create new Points object without border points
         nozzle_cpts = Points(n_coords[mask])
-        nozzle_cpts.ps(n_pts.ps())  # copy point size
+        nozzle_cpts.ps(n_pts.ps())
         nozzle_cpts.pointcolors = n_colors[mask]
 
         # Retrieve coordinates in x, y, z arrays
@@ -387,7 +379,7 @@ class SimulationApp(QWidget):
         # Compute shear stress for each point
         self.nozzle_shear_vals = compute_shear_stress(
             x_nvals, y_nvals, z_nvals,
-            self.R_in, self.R_out, self.L, self.Q, self.K, self.n)
+            self.R_in, self.R_out, self.L, self.pressure_pa, self.K, self.n)
         
         self.nozzle_max = np.max(self.nozzle_shear_vals)
 
@@ -396,7 +388,7 @@ class SimulationApp(QWidget):
         nozzle_cpts.cmap("plasma", self.nozzle_shear_vals, on="points", vmax=self.nozzle_max, vmin=0)
         nozzle_cpts.add_scalarbar(title="Shear Stress (Pa)", c="w")
 
-        Plotter().show(nozzle_cpts, axes=1, bg="black", title=f"NOZZLE STRESS DISTRIBUTION at P={self.pressure_pa}Pa")
+        Plotter().show(nozzle_cpts, axes=1, bg="black", title=f"{self.file_name}: Nozzle Shear Stress at P={self.pressure_pa}Pa")
 
     
     def open_cell_window(self):

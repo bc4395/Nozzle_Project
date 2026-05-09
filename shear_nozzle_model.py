@@ -99,13 +99,13 @@ Plotter().show(nozzle_cpts, axes=1, bg="black", title=f"NOZZLE STRESS DISTRIBUTI
 #=================================================================================================
 #----------------- Cell Mesh Analysis -------------------
 # Center position of cell to insert
-x_insert = 0.000005
-y_insert = 0.00001
-z_insert = 0.00
+x_insert = 0.0083
+y_insert = 0.000012
+z_insert = 0.00023
 
 # cell_mesh = Mesh("random.stl")
-# cell_mesh = Sphere(pos=(x_insert,y_insert,z_insert), r=0.00001)
-cell_mesh = Ellipsoid(pos=(x_insert, y_insert, z_insert), axis1=(0.00001,0,0), axis2=(0,0.000005,0), axis3=(0,0,0.000005))
+cell_mesh = Sphere(pos=(x_insert,y_insert,z_insert), r=0.00001)
+# cell_mesh = Ellipsoid(pos=(x_insert, y_insert, z_insert), axis1=(0.00001,0,0), axis2=(0,0.000005,0), axis3=(0,0,0.000005))
 
 cell_pts = cell_mesh.binarize(spacing=(0.0000005, 0.0000005, 0.0000005))
 

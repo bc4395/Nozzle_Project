@@ -10,4 +10,5 @@ def fit_power_law(df):
     sr_data = df["SR"].values
     vis_data = df["Vis"].values
     K, n = curve_fit(model, sr_data, vis_data, p0=[1.0, 1.0])[0]  # Initial guess for K, n
+    K = K / 1000  # Convert K to Pa.s^n from mPa.s^n
     return K, n
